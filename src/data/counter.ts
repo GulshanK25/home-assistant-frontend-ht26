@@ -9,6 +9,11 @@ export interface Counter {
   minimum?: number;
   maximum?: number;
   step?: number;
+
+  // Enhanced Counter Mode
+  enhanced_mode?: boolean;
+  timer_entity?: string;
+  schedule_entity?: string;
 }
 
 export interface CounterMutableParams {
@@ -19,6 +24,11 @@ export interface CounterMutableParams {
   minimum: number;
   maximum: number;
   step: number;
+
+  // Enhanced Counter Mode
+  enhanced_mode?: boolean;
+  timer_entity?: string;
+  schedule_entity?: string;
 }
 
 export const fetchCounter = (hass: HomeAssistant) =>

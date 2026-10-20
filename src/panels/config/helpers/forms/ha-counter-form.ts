@@ -2,6 +2,7 @@ import type { CSSResultGroup } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import { fireEvent } from "../../../../common/dom/fire_event";
+import "../../../../components/entity/ha-entity-picker";
 import "../../../../components/ha-expansion-panel";
 import "../../../../components/ha-icon-picker";
 import "../../../../components/ha-switch";
@@ -31,6 +32,12 @@ class HaCounterForm extends LitElement {
 
   @state() private _restore?: boolean;
 
+  @state() private _enhanced_mode = false;
+
+  @state() private _timer_entity?: string;
+
+  @state() private _schedule_entity?: string;
+
   @state() private _initial?: number;
 
   @state() private _step?: number;
@@ -39,6 +46,7 @@ class HaCounterForm extends LitElement {
 
   set item(item: Counter) {
     this._item = item;
+
     if (item) {
       this._name = item.name || "";
       this._icon = item.icon || "";
@@ -47,6 +55,11 @@ class HaCounterForm extends LitElement {
       this._restore = item.restore ?? true;
       this._step = item.step ?? 1;
       this._initial = item.initial ?? 0;
+
+      // Enhanced Counter Mode settings
+      this._enhanced_mode = item.enhanced_mode ?? false;
+      this._timer_entity = item.timer_entity;
+      this._schedule_entity = item.schedule_entity;
     } else {
       this._name = "";
       this._icon = "";
@@ -55,6 +68,11 @@ class HaCounterForm extends LitElement {
       this._restore = true;
       this._step = 1;
       this._initial = 0;
+
+      // Default enhanced mode settings
+      this._enhanced_mode = false;
+      this._timer_entity = undefined;
+      this._schedule_entity = undefined;
     }
   }
 
@@ -84,6 +102,7 @@ class HaCounterForm extends LitElement {
           dialogInitialFocus
           .disabled=${this.disabled}
         ></ha-input>
+
         <ha-icon-picker
           .value=${this._icon}
           .configValue=${"icon"}
@@ -93,6 +112,7 @@ class HaCounterForm extends LitElement {
           )}
           .disabled=${this.disabled}
         ></ha-icon-picker>
+
         <ha-input
           .value=${this._minimum !== undefined ? String(this._minimum) : ""}
           .configValue=${"minimum"}
@@ -103,6 +123,7 @@ class HaCounterForm extends LitElement {
           )}
           .disabled=${this.disabled}
         ></ha-input>
+
         <ha-input
           .value=${this._maximum !== undefined ? String(this._maximum) : ""}
           .configValue=${"maximum"}
@@ -113,6 +134,7 @@ class HaCounterForm extends LitElement {
           )}
           .disabled=${this.disabled}
         ></ha-input>
+
         <ha-input
           .value=${this._initial !== undefined ? String(this._initial) : ""}
           .configValue=${"initial"}
@@ -123,6 +145,46 @@ class HaCounterForm extends LitElement {
           )}
           .disabled=${this.disabled}
         ></ha-input>
+
+        <!-- Enhanced Counter Mode toggle -->
+        <div class="row">
+          <ha-switch
+            .checked=${this._enhanced_mode}
+            .configValue=${"enhanced_mode"}
+            @change=${this._valueChanged}
+            .disabled=${this.disabled}
+          >
+          </ha-switch>
+          <div>Enhanced Counter Mode</div>
+        </div>
+
+        <!-- Timer and Schedule selectors -->
+        ${
+          this._enhanced_mode
+            ? html`
+                <ha-entity-picker
+                  .hass=${this.hass}
+                  .value=${this._timer_entity}
+                  .configValue=${"timer_entity"}
+                  .includeDomains=${["timer"]}
+                  .label=${"Timer entity (optional)"}
+                  @value-changed=${this._valueChanged}
+                  .disabled=${this.disabled}
+                ></ha-entity-picker>
+
+                <ha-entity-picker
+                  .hass=${this.hass}
+                  .value=${this._schedule_entity}
+                  .configValue=${"schedule_entity"}
+                  .includeDomains=${["schedule"]}
+                  .label=${"Schedule entity (optional)"}
+                  @value-changed=${this._valueChanged}
+                  .disabled=${this.disabled}
+                ></ha-entity-picker>
+              `
+            : nothing
+        }
+
         <ha-expansion-panel
           header=${this.hass.localize(
             "ui.dialogs.helper_settings.generic.more_options"
@@ -139,6 +201,7 @@ class HaCounterForm extends LitElement {
             )}
             .disabled=${this.disabled}
           ></ha-input>
+
           <div class="row">
             <ha-switch
               .checked=${this._restore}
@@ -162,9 +225,12 @@ class HaCounterForm extends LitElement {
     if (!this.new && !this._item) {
       return;
     }
+
     ev.stopPropagation();
+
     const target = ev.target as any;
     const configValue = target.configValue;
+
     const value =
       target.type === "number"
         ? target.value !== ""
@@ -172,16 +238,20 @@ class HaCounterForm extends LitElement {
           : undefined
         : target.localName === "ha-switch"
           ? (ev.target as HaSwitch).checked
-          : ev.detail?.value || target.value;
+          : (ev.detail?.value ?? target.value);
+
     if (this[`_${configValue}`] === value) {
       return;
     }
+
     const newValue = { ...this._item };
-    if (value === undefined || value === "") {
+
+    if (value === undefined || value === "" || value === null) {
       delete newValue[configValue];
     } else {
       newValue[configValue] = value;
     }
+
     fireEvent(this, "value-changed", {
       value: newValue,
     });
@@ -194,6 +264,7 @@ class HaCounterForm extends LitElement {
         .form {
           color: var(--primary-text-color);
         }
+
         .row {
           margin-top: 12px;
           margin-bottom: 12px;
@@ -201,12 +272,19 @@ class HaCounterForm extends LitElement {
           display: flex;
           align-items: center;
         }
+
         .row div {
           margin-left: 16px;
           margin-inline-start: 16px;
           margin-inline-end: initial;
         }
+
         ha-input {
+          margin: var(--ha-space-2) 0;
+        }
+
+        ha-entity-picker {
+          display: block;
           margin: var(--ha-space-2) 0;
         }
       `,
