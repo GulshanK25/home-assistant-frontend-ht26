@@ -45,6 +45,9 @@ const COMPONENTS = {
   my: { load: () => import("../panels/my/ha-panel-my") },
   profile: { load: () => import("../panels/profile/ha-panel-profile") },
   todo: { load: () => import("../panels/todo/ha-panel-todo") },
+  "task-rotation": {
+    load: () => import("../panels/task-rotation/ha-panel-task-rotation"),
+  },
   "media-browser": {
     load: () => import("../panels/media-browser/ha-panel-media-browser"),
     waitForReady: true,
