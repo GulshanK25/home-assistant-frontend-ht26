@@ -1,3 +1,4 @@
+/** Task Rotation: a Counter-backed household task demonstration. */
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators";
 import type { HomeAssistant } from "../../types";
@@ -12,6 +13,8 @@ interface TodoItem {
   description?: string;
   due?: string;
 }
+type RotationMode = "manual" | "timer" | "timer_schedule";
+
 interface Rotation {
   people: string[];
   index: number;
@@ -89,6 +92,7 @@ export class HaPanelTaskRotation extends LitElement {
   @state() private _name = "";
   @state() private _due = "";
   @state() private _people = "";
+  @state() private _rotationMode: RotationMode = "manual";
   @state() private _timerEntity = "";
   @state() private _scheduleEntity = "";
   @state() private _editId: string | null = null;
@@ -131,6 +135,19 @@ export class HaPanelTaskRotation extends LitElement {
       ((rotation.index % rotation.people.length) + rotation.people.length) %
       rotation.people.length
     );
+  }
+
+  private _completedTurns(rotation: Rotation): number {
+    // Confirmed manual completions stay in To-do metadata. Timer completions
+    // are tracked by Core so they count even while this panel is closed.
+    if (!rotation.counter_entity) return rotation.completed;
+    const count = this._counterState(rotation.counter_entity)?.attributes
+      .automatic_turns;
+    const automaticTurns =
+      typeof count === "number" && Number.isSafeInteger(count) && count >= 0
+        ? count
+        : 0;
+    return rotation.completed + automaticTurns;
   }
 
   private _helperEntities(domain: string): string[] {
@@ -234,19 +251,43 @@ export class HaPanelTaskRotation extends LitElement {
       const name = this._name.trim();
       if (!name) throw new Error("Task name is required.");
       const people = namesFromInput(this._people);
-      if (this._timerEntity && !this.hass.states[this._timerEntity]) {
-        throw new Error("Selected Timer helper no longer exists.");
+      const timerEntity =
+        this._rotationMode === "manual" ? "" : this._timerEntity;
+      const scheduleEntity =
+        this._rotationMode === "timer_schedule" ? this._scheduleEntity : "";
+
+      if (this._rotationMode !== "manual") {
+        if (!timerEntity) {
+          throw new Error("Select a Timer helper for automatic rotation.");
+        }
+        if (
+          !timerEntity.startsWith("timer.") ||
+          !this.hass.states[timerEntity]
+        ) {
+          throw new Error("Selected Timer helper no longer exists.");
+        }
       }
-      if (this._scheduleEntity && !this.hass.states[this._scheduleEntity]) {
-        throw new Error("Selected Schedule helper no longer exists.");
+      if (this._rotationMode === "timer_schedule") {
+        if (!scheduleEntity) {
+          throw new Error(
+            "Select a Schedule helper to restrict automatic rotation."
+          );
+        }
+        if (
+          !scheduleEntity.startsWith("schedule.") ||
+          !this.hass.states[scheduleEntity]
+        ) {
+          throw new Error("Selected Schedule helper no longer exists.");
+        }
       }
 
       // Each task owns its own persistent Counter from the start.
+      // Manual tasks intentionally omit both optional automation fields.
       created = await this._createCounter(
         name,
         people.length,
-        this._timerEntity,
-        this._scheduleEntity
+        timerEntity,
+        scheduleEntity
       );
       const data: Record<string, string> = {
         item: name,
@@ -267,6 +308,7 @@ export class HaPanelTaskRotation extends LitElement {
       this._name = "";
       this._due = "";
       this._people = "";
+      this._rotationMode = "manual";
       this._timerEntity = "";
       this._scheduleEntity = "";
       await this._load();
@@ -464,6 +506,17 @@ export class HaPanelTaskRotation extends LitElement {
     this._due = (event.target as HTMLInputElement).value;
   }
 
+  private _onRotationModeChange(event: Event): void {
+    this._rotationMode = (event.target as HTMLSelectElement)
+      .value as RotationMode;
+    if (this._rotationMode === "manual") {
+      this._timerEntity = "";
+      this._scheduleEntity = "";
+    } else if (this._rotationMode === "timer") {
+      this._scheduleEntity = "";
+    }
+  }
+
   private _onTimerChange(event: Event): void {
     this._timerEntity = (event.target as HTMLSelectElement).value;
   }
@@ -526,8 +579,8 @@ export class HaPanelTaskRotation extends LitElement {
           </div>
         </header>
         <p class="note">
-          Each new task automatically gets its own Enhanced Counter. A selected
-          Timer and Schedule are stored in that Counter's settings.
+          Each new task gets its own Enhanced Counter. Choose whether rotation
+          is manual or automatically triggered by a Timer.
         </p>
         ${
           this._createOpen
@@ -559,28 +612,54 @@ export class HaPanelTaskRotation extends LitElement {
                   />
                 </label>
                 <label
-                  >Timer helper (optional)
+                  >Rotation mode
                   <select
-                    .value=${this._timerEntity}
-                    @change=${this._onTimerChange}
+                    .value=${this._rotationMode}
+                    @change=${this._onRotationModeChange}
                   >
-                    <option value="">No Timer selected</option>
-                    ${this._helperEntities("timer").map((id) => html`<option value=${id}>${id}</option>`)}
+                    <option value="manual">Manual only (default)</option>
+                    <option value="timer">Timer-based</option>
+                    <option value="timer_schedule">Timer + Schedule</option>
                   </select>
                 </label>
-                <label
-                  >Schedule helper (optional)
-                  <select
-                    .value=${this._scheduleEntity}
-                    @change=${this._onScheduleChange}
-                  >
-                    <option value="">No Schedule selected</option>
-                    ${this._helperEntities("schedule").map((id) => html`<option value=${id}>${id}</option>`)}
-                  </select>
-                </label>
+                ${
+                  this._rotationMode !== "manual"
+                    ? html`<label
+                        >Timer helper (required)
+                        <select
+                          required
+                          .value=${this._timerEntity}
+                          @change=${this._onTimerChange}
+                        >
+                          <option value="">Select a Timer</option>
+                          ${this._helperEntities("timer").map((id) => html`<option value=${id}>${id}</option>`)}
+                        </select>
+                      </label>`
+                    : nothing
+                }
+                ${
+                  this._rotationMode === "timer_schedule"
+                    ? html`<label
+                        >Schedule helper (required)
+                        <select
+                          required
+                          .value=${this._scheduleEntity}
+                          @change=${this._onScheduleChange}
+                        >
+                          <option value="">Select a Schedule</option>
+                          ${this._helperEntities("schedule").map((id) => html`<option value=${id}>${id}</option>`)}
+                        </select>
+                      </label>`
+                    : nothing
+                }
                 <p class="note">
-                  Timer/Schedule automatic increments require the Core event
-                  listener feature.
+                  ${
+                    this._rotationMode === "manual"
+                      ? "Assignments change only when a turn is manually completed."
+                      : this._rotationMode === "timer"
+                        ? "Assignments change when the selected Timer finishes. Start the Timer manually or with an automation."
+                        : "Assignments change when the Timer finishes, only while the Schedule is ON."
+                  }
                 </p>
                 <button type="submit" ?disabled=${this._busy}>Save Task</button>
               </form>`
@@ -614,7 +693,9 @@ export class HaPanelTaskRotation extends LitElement {
                       <p class="note">
                         Rotation order: ${rotation.people.join(" → ")}
                       </p>
-                      <p class="note">Completed turns: ${rotation.completed}</p>
+                      <p class="note">
+                        Completed turns: ${this._completedTurns(rotation)}
+                      </p>
                       <p class="note">
                         ${linked ? `Counter: ${rotation.counter_entity}` : "Legacy task (edit participants to create a Counter)"}
                       </p>
